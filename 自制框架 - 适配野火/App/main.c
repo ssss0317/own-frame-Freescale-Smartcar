@@ -8,10 +8,15 @@
 
 //#define motor_en_io PTE26
 #define MOTOR1_EN_IO   PTD15
-#define MOTOR2_EN_IO   PTA19//开启时激光测速灯会开
+#define MOTOR2_EN_IO   PTA19
+
+void SendHex(unsigned char hex) ;
+void SendImageData(unsigned char *ImageData) ;//CCD上位机调试
+
+#define ccduart UART3
 
 //#undef FTM1_PRECISON
-//#define FTM1_PRECISON 10000u//舵机控制精度
+//#define FTM1_PRECISON 10000u//舵机控制精度,现直接在ftm.c里改了
 
 #if 0
 #define Motor_Hz    (50)//滑行模式下，频率50
@@ -69,7 +74,7 @@ void main()
         
         MotorPID.duty=lowduty;
 
-	//uart_init(UART4,19200);
+	uart_init(UART3,115200);//CCD上位机串口
 
 	tsl1401_set_addrs(TSL1401_MAX,(uint8 *)&CCD_BUFF[0],(uint8 *)&CCD_BUFF[1]);//初始化 线性CCD
 	tsl1401_init(time);//初始化 线性CCD ，配置中断时间为time
@@ -78,7 +83,7 @@ void main()
     LCD_init();                                 //LCD初始化
     //
 
-	tsl1401_led_en(TSL1401_MAX);               //开启补光灯
+	//tsl1401_led_en(TSL1401_MAX);               //开启补光灯
 	//tsl1401_led_dis(TSL1401_MAX);             //关闭补光灯
 
 	FTM_PWM_init(FTM1,FTM_CH0,100,10000-1500);//初始化舵机
@@ -97,7 +102,7 @@ void main()
 	//#define __CMSIS_GENERIC /* disable NVIC and Systick functions */
 
 	enable_irq(PIT0_IRQn);//开CCD定时中断
-	enable_irq(PIT1_IRQn);//开编码器定时中断
+	//enable_irq(PIT1_IRQn);//开编码器定时中断
 	
 	EnableInterrupts;
 	DELAY_MS(500);//延时启动
@@ -112,10 +117,11 @@ void main()
 		//mode_get();
 		//if(startline==1)
 		//stop();
+                SendImageData(CCD_BUFF[0]);
 		image_error=get_img_error();
 		servo_angle=servo_angle_cal(image_error);
 		expect_speed_duty=motor_speed_cal(image_error);
-		//servo_control(servo_angle);
+		servo_control(servo_angle);
 		//motor_control(expect_speed_duty);//CCD慢速手动测试
 		DELAY_MS(5);
 	}
@@ -137,9 +143,69 @@ void PIT1_IRQHandler(void)
 
 void Motor_init(void)
 {
-        gpio_init(MOTOR1_EN_IO,GPO,HIGH);//初始化BTN INH
-        gpio_init(MOTOR2_EN_IO,GPO,HIGH);
+        gpio_init(MOTOR1_EN_IO,GPO,LOW);//初始化BTN INH
+        gpio_init(MOTOR2_EN_IO,GPO,LOW);
 	FTM_PWM_init(FTM0, FTM_CH3, Motor_Hz,100);//野火使用CH3，CH4，同时激光灯开
 	FTM_PWM_init(FTM0, FTM_CH4, Motor_Hz,100);
 	//FTM_PWM_init(FTM0, FTM_CH3, Motor_Hz,0);
+}
+
+/*************************************************************************
+*                           蓝宙电子工作室
+*
+*  函数名称：SendHex
+*  功能说明：采集发数程序
+*  参数说明：
+*  函数返回：无
+*  修改时间：2012-10-20
+*  备    注：
+*************************************************************************/
+void SendHex(unsigned char hex)
+{
+  unsigned char temp;
+  temp = hex >> 4;
+  if(temp < 10) {
+    uart_putchar(ccduart,temp + '0');
+  } else {
+    uart_putchar(ccduart,temp - 10 + 'A');
+  }
+  temp = hex & 0x0F;
+  if(temp < 10) {
+    uart_putchar(ccduart,temp + '0');
+  } else {
+   uart_putchar(ccduart,temp - 10 + 'A');
+  }
+}
+/*************************************************************************
+*                           蓝宙电子工作室
+*
+*  函数名称：SendImageData
+*  功能说明：
+*  参数说明：
+*  函数返回：无
+*  修改时间：2012-10-20
+*  备    注：
+*************************************************************************/
+void SendImageData(unsigned char *ImageData)
+{
+
+    unsigned char i;
+    unsigned char crc = 0;
+
+    /* Send Data */
+    uart_putchar(ccduart,'*');
+    uart_putchar(ccduart,'L');
+    uart_putchar(ccduart,'D');
+
+    SendHex(0);
+    SendHex(0);
+    SendHex(0);
+    SendHex(0);
+
+    for(i=0; i<128; i++) {
+      SendHex(*ImageData++);
+    }
+
+    SendHex(crc);
+    uart_putchar(ccduart,'#');
 }
